@@ -777,7 +777,7 @@
                 const gripperWorldPos = new THREE.Vector3();
                 robotArm.gripper.getWorldPosition(gripperWorldPos);
                 grippedObject.position.copy(gripperWorldPos);
-                grippedObject.position.y -= 60; // 调整高度
+                grippedObject.position.y -= 50; // 调整到物体中心位置
             }
         }
 
@@ -857,10 +857,13 @@
 
         function checkGrip() {
             const gripperPos = getEndEffectorPosition();
-            const targetPos = targetObject.position;
-            const distance = gripperPos.distanceTo(targetPos);
+            const distance = Math.sqrt(
+                Math.pow(gripperPos.x - targetObject.position.x, 2) +
+                Math.pow(gripperPos.y - targetObject.position.y, 2) +
+                Math.pow(gripperPos.z - targetObject.position.z, 2)
+            );
 
-            if (distance < 80) {
+            if (distance < 100) {
                 grippedObject = targetObject;
                 log('成功抓取物体！', 'success');
             }
