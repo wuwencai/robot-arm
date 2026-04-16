@@ -1,0 +1,995 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>六轴机械臂仿真控制系统</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap');
+
+        body {
+            font-family: 'Inter', sans-serif;
+            overflow: hidden;
+            background: #0f172a;
+        }
+
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(148, 163, 184, 0.2);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+        }
+
+        .neon-border {
+            box-shadow: 0 0 10px rgba(56, 189, 248, 0.3), inset 0 0 10px rgba(56, 189, 248, 0.1);
+        }
+
+        .joint-slider {
+            -webkit-appearance: none;
+            width: 100%;
+            height: 6px;
+            background: linear-gradient(to right, #1e293b, #334155);
+            border-radius: 3px;
+            outline: none;
+        }
+
+        .joint-slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 18px;
+            height: 18px;
+            background: #38bdf8;
+            border-radius: 50%;
+            cursor: pointer;
+            box-shadow: 0 0 10px rgba(56, 189, 248, 0.8);
+            transition: transform 0.2s;
+        }
+
+        .joint-slider::-webkit-slider-thumb:hover {
+            transform: scale(1.2);
+        }
+
+        .status-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: inline-block;
+            margin-right: 8px;
+            box-shadow: 0 0 8px currentColor;
+        }
+
+        .status-active { background: #22c55e; color: #22c55e; }
+        .status-busy { background: #f59e0b; color: #f59e0b; }
+        .status-idle { background: #64748b; color: #64748b; }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%);
+            transition: all 0.3s ease;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(14, 165, 233, 0.4);
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+        }
+
+        .btn-danger:hover {
+            box-shadow: 0 10px 25px rgba(239, 68, 68, 0.4);
+        }
+
+        .coordinate-input {
+            background: rgba(30, 41, 59, 0.8);
+            border: 1px solid rgba(148, 163, 184, 0.3);
+            color: #e2e8f0;
+            transition: all 0.3s;
+        }
+
+        .coordinate-input:focus {
+            border-color: #38bdf8;
+            box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.2);
+            outline: none;
+        }
+
+        #canvas-container {
+            position: relative;
+            width: 100%;
+            height: 100%;
+        }
+
+        .axis-label {
+            font-size: 0.75rem;
+            color: #94a3b8;
+            font-weight: 600;
+        }
+
+        .value-display {
+            font-family: 'Courier New', monospace;
+            color: #38bdf8;
+            font-weight: 700;
+        }
+
+        .log-entry {
+            font-size: 0.85rem;
+            padding: 4px 8px;
+            border-left: 3px solid transparent;
+            margin-bottom: 4px;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from { opacity: 0; transform: translateX(-10px); }
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        .log-info { border-left-color: #38bdf8; background: rgba(56, 189, 248, 0.1); }
+        .log-success { border-left-color: #22c55e; background: rgba(34, 197, 94, 0.1); }
+        .log-warning { border-left-color: #f59e0b; background: rgba(245, 158, 11, 0.1); }
+
+        /* Custom scrollbar */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #0f172a; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #475569; }
+    </style>
+<base target="_blank">
+</head>
+<body class="text-slate-200">
+    <div class="flex h-screen">
+        <!-- 3D Canvas Area -->
+        <div class="flex-1 relative" id="canvas-wrapper">
+            <div id="canvas-container"></div>
+
+            <!-- Overlay Info -->
+            <div class="absolute top-4 left-4 glass-panel rounded-lg p-4 max-w-xs">
+                <h2 class="text-lg font-bold text-sky-400 mb-2">六轴机械臂仿真</h2>
+                <div class="flex items-center mb-2">
+                    <span id="system-status" class="status-indicator status-idle"></span>
+                    <span id="status-text" class="text-sm font-medium">系统待机</span>
+                </div>
+                <div class="text-xs text-slate-400 space-y-1">
+                    <p>• 鼠标左键：旋转视角</p>
+                    <p>• 鼠标右键：平移视角</p>
+                    <p>• 滚轮：缩放</p>
+                </div>
+            </div>
+
+            <!-- End Effector Position -->
+            <div class="absolute top-4 right-4 glass-panel rounded-lg p-4">
+                <h3 class="text-sm font-semibold text-slate-300 mb-2">末端执行器位置</h3>
+                <div class="grid grid-cols-3 gap-3 text-xs">
+                    <div class="text-center">
+                        <span class="block text-red-400 font-bold">X</span>
+                        <span id="end-x" class="value-display">0.0</span>
+                    </div>
+                    <div class="text-center">
+                        <span class="block text-green-400 font-bold">Y</span>
+                        <span id="end-y" class="value-display">0.0</span>
+                    </div>
+                    <div class="text-center">
+                        <span class="block text-blue-400 font-bold">Z</span>
+                        <span id="end-z" class="value-display">0.0</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Control Panel -->
+        <div class="w-96 glass-panel flex flex-col border-l border-slate-700">
+            <!-- Header -->
+            <div class="p-4 border-b border-slate-700">
+                <h1 class="text-xl font-bold bg-gradient-to-r from-sky-400 to-blue-500 bg-clip-text text-transparent">
+                    控制面板
+                </h1>
+            </div>
+
+            <!-- Scrollable Content -->
+            <div class="flex-1 overflow-y-auto p-4 space-y-6">
+
+                <!-- Pick Position -->
+                <div class="space-y-3">
+                    <div class="flex items-center justify-between">
+                        <h3 class="text-sm font-semibold text-sky-400 flex items-center">
+                            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path>
+                            </svg>
+                            拾取点位 (Pick)
+                        </h3>
+                        <button onclick="getCurrentPos('pick')" class="text-xs text-slate-400 hover:text-sky-400 transition">
+                            获取当前位
+                        </button>
+                    </div>
+                    <div class="grid grid-cols-3 gap-2">
+                        <div>
+                            <label class="axis-label block mb-1">X (mm)</label>
+                            <input type="number" id="pick-x" class="coordinate-input w-full px-2 py-1 rounded text-sm" value="300">
+                        </div>
+                        <div>
+                            <label class="axis-label block mb-1">Y (mm)</label>
+                            <input type="number" id="pick-y" class="coordinate-input w-full px-2 py-1 rounded text-sm" value="0">
+                        </div>
+                        <div>
+                            <label class="axis-label block mb-1">Z (mm)</label>
+                            <input type="number" id="pick-z" class="coordinate-input w-full px-2 py-1 rounded text-sm" value="100">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Place Position -->
+                <div class="space-y-3">
+                    <div class="flex items-center justify-between">
+                        <h3 class="text-sm font-semibold text-emerald-400 flex items-center">
+                            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 10l7-7m0 0l7 7m-7-7v18"></path>
+                            </svg>
+                            放置点位 (Place)
+                        </h3>
+                        <button onclick="getCurrentPos('place')" class="text-xs text-slate-400 hover:text-emerald-400 transition">
+                            获取当前位
+                        </button>
+                    </div>
+                    <div class="grid grid-cols-3 gap-2">
+                        <div>
+                            <label class="axis-label block mb-1">X (mm)</label>
+                            <input type="number" id="place-x" class="coordinate-input w-full px-2 py-1 rounded text-sm" value="-200">
+                        </div>
+                        <div>
+                            <label class="axis-label block mb-1">Y (mm)</label>
+                            <input type="number" id="place-y" class="coordinate-input w-full px-2 py-1 rounded text-sm" value="200">
+                        </div>
+                        <div>
+                            <label class="axis-label block mb-1">Z (mm)</label>
+                            <input type="number" id="place-z" class="coordinate-input w-full px-2 py-1 rounded text-sm" value="150">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="grid grid-cols-2 gap-3">
+                    <button onclick="executePickPlace()" id="btn-execute" class="btn-primary text-white font-semibold py-3 px-4 rounded-lg flex items-center justify-center">
+                        <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                        执行拾取放置
+                    </button>
+                    <button onclick="resetArm()" class="bg-slate-700 hover:bg-slate-600 text-white font-semibold py-3 px-4 rounded-lg transition flex items-center justify-center">
+                        <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                        </svg>
+                        复位
+                    </button>
+                </div>
+
+                <button onclick="stopExecution()" id="btn-stop" class="btn-danger text-white font-semibold py-2 px-4 rounded-lg w-full hidden">
+                    停止执行
+                </button>
+
+                <!-- Joint Control -->
+                <div class="space-y-4 pt-4 border-t border-slate-700">
+                    <h3 class="text-sm font-semibold text-slate-300">关节手动控制</h3>
+
+                    <div class="space-y-3">
+                        <div class="joint-control">
+                            <div class="flex justify-between text-xs mb-1">
+                                <span class="text-slate-400">关节 1 (底座旋转)</span>
+                                <span id="j1-value" class="value-display">0°</span>
+                            </div>
+                            <input type="range" id="j1" min="-180" max="180" value="0" class="joint-slider" oninput="updateJoint(1, this.value)">
+                        </div>
+
+                        <div class="joint-control">
+                            <div class="flex justify-between text-xs mb-1">
+                                <span class="text-slate-400">关节 2 (大臂)</span>
+                                <span id="j2-value" class="value-display">0°</span>
+                            </div>
+                            <input type="range" id="j2" min="-90" max="90" value="0" class="joint-slider" oninput="updateJoint(2, this.value)">
+                        </div>
+
+                        <div class="joint-control">
+                            <div class="flex justify-between text-xs mb-1">
+                                <span class="text-slate-400">关节 3 (小臂)</span>
+                                <span id="j3-value" class="value-display">0°</span>
+                            </div>
+                            <input type="range" id="j3" min="-90" max="90" value="0" class="joint-slider" oninput="updateJoint(3, this.value)">
+                        </div>
+
+                        <div class="joint-control">
+                            <div class="flex justify-between text-xs mb-1">
+                                <span class="text-slate-400">关节 4 (手腕旋转)</span>
+                                <span id="j4-value" class="value-display">0°</span>
+                            </div>
+                            <input type="range" id="j4" min="-180" max="180" value="0" class="joint-slider" oninput="updateJoint(4, this.value)">
+                        </div>
+
+                        <div class="joint-control">
+                            <div class="flex justify-between text-xs mb-1">
+                                <span class="text-slate-400">关节 5 (手腕摆动)</span>
+                                <span id="j5-value" class="value-display">0°</span>
+                            </div>
+                            <input type="range" id="j5" min="-90" max="90" value="0" class="joint-slider" oninput="updateJoint(5, this.value)">
+                        </div>
+
+                        <div class="joint-control">
+                            <div class="flex justify-between text-xs mb-1">
+                                <span class="text-slate-400">关节 6 (夹具旋转)</span>
+                                <span id="j6-value" class="value-display">0°</span>
+                            </div>
+                            <input type="range" id="j6" min="-180" max="180" value="0" class="joint-slider" oninput="updateJoint(6, this.value)">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Gripper Control -->
+                <div class="space-y-3 pt-4 border-t border-slate-700">
+                    <h3 class="text-sm font-semibold text-slate-300">夹具控制</h3>
+                    <div class="flex gap-2">
+                        <button onclick="setGripper(true)" id="btn-gripper-close" class="flex-1 bg-slate-700 hover:bg-slate-600 text-white py-2 rounded text-sm transition">
+                            闭合夹取
+                        </button>
+                        <button onclick="setGripper(false)" id="btn-gripper-open" class="flex-1 bg-slate-700 hover:bg-slate-600 text-white py-2 rounded text-sm transition">
+                            张开释放
+                        </button>
+                    </div>
+                </div>
+
+                <!-- System Log -->
+                <div class="pt-4 border-t border-slate-700">
+                    <h3 class="text-sm font-semibold text-slate-300 mb-2">系统日志</h3>
+                    <div id="system-log" class="h-32 overflow-y-auto text-xs space-y-1 bg-slate-900/50 rounded p-2">
+                        <div class="log-entry log-info">系统初始化完成...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 全局变量
+        let scene, camera, renderer, controls;
+        let robotArm = {};
+        let targetObject, pickMarker, placeMarker;
+        let isExecuting = false;
+        let animationId = null;
+        let grippedObject = null;
+
+        // DH 参数 (改进型DH)
+        const dhParams = [
+            { a: 0,      d: 150,  alpha: -90, theta: 0 },   // 关节1
+            { a: 400,    d: 0,    alpha: 0,   theta: 0 },   // 关节2
+            { a: 350,    d: 0,    alpha: 0,   theta: 0 },   // 关节3
+            { a: 0,      d: 100,  alpha: -90, theta: 0 },   // 关节4
+            { a: 0,      d: 0,    alpha: 90,  theta: 0 },   // 关节5
+            { a: 0,      d: 80,   alpha: 0,   theta: 0 }    // 关节6
+        ];
+
+        // 当前关节角度
+        let jointAngles = [0, 0, 0, 0, 0, 0];
+
+        // 初始化 Three.js
+        function init() {
+            const container = document.getElementById('canvas-container');
+
+            // 场景
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0f172a);
+            scene.fog = new THREE.Fog(0x0f172a, 1000, 3000);
+
+            // 相机
+            camera = new THREE.PerspectiveCamera(60, container.clientWidth / container.clientHeight, 1, 5000);
+            camera.position.set(800, 600, 800);
+
+            // 渲染器
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+            container.appendChild(renderer.domElement);
+
+            // 控制器
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.target.set(0, 300, 0);
+
+            // 灯光
+            const ambientLight = new THREE.AmbientLight(0x404040, 1.5);
+            scene.add(ambientLight);
+
+            const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+            dirLight.position.set(500, 1000, 500);
+            dirLight.castShadow = true;
+            dirLight.shadow.mapSize.width = 2048;
+            dirLight.shadow.mapSize.height = 2048;
+            scene.add(dirLight);
+
+            const pointLight = new THREE.PointLight(0x38bdf8, 0.5, 1000);
+            pointLight.position.set(-300, 500, -300);
+            scene.add(pointLight);
+
+            // 网格地板
+            const gridHelper = new THREE.GridHelper(2000, 40, 0x334155, 0x1e293b);
+            scene.add(gridHelper);
+
+            // 坐标轴
+            const axesHelper = new THREE.AxesHelper(200);
+            scene.add(axesHelper);
+
+            // 创建机械臂
+            createRobotArm();
+
+            // 创建目标物体和标记
+            createMarkers();
+
+            // 窗口调整
+            window.addEventListener('resize', onWindowResize);
+
+            // 开始动画循环
+            animate();
+
+            log('系统就绪，等待指令...', 'info');
+        }
+
+        function createRobotArm() {
+            // 材料
+            const baseMaterial = new THREE.MeshPhongMaterial({ 
+                color: 0x1e293b, 
+                metalness: 0.8, 
+                roughness: 0.3,
+                shininess: 100
+            });
+
+            const jointMaterial = new THREE.MeshPhongMaterial({ 
+                color: 0x0ea5e9, 
+                metalness: 0.9, 
+                roughness: 0.2,
+                emissive: 0x0284c7,
+                emissiveIntensity: 0.2
+            });
+
+            const linkMaterial = new THREE.MeshPhongMaterial({ 
+                color: 0x64748b, 
+                metalness: 0.7, 
+                roughness: 0.4 
+            });
+
+            const gripperMaterial = new THREE.MeshPhongMaterial({
+                color: 0xf59e0b,
+                metalness: 0.8,
+                roughness: 0.3
+            });
+
+            // 底座
+            robotArm.base = new THREE.Group();
+            const baseGeo = new THREE.CylinderGeometry(120, 140, 40, 32);
+            const baseMesh = new THREE.Mesh(baseGeo, baseMaterial);
+            baseMesh.position.y = 20;
+            baseMesh.castShadow = true;
+            baseMesh.receiveShadow = true;
+            robotArm.base.add(baseMesh);
+            scene.add(robotArm.base);
+
+            // 关节1 (旋转底座)
+            robotArm.joint1 = new THREE.Group();
+            robotArm.joint1.position.y = 40;
+
+            const j1Geo = new THREE.CylinderGeometry(60, 60, 100, 32);
+            const j1Mesh = new THREE.Mesh(j1Geo, jointMaterial);
+            j1Mesh.position.y = 50;
+            j1Mesh.castShadow = true;
+            robotArm.joint1.add(j1Mesh);
+
+            robotArm.base.add(robotArm.joint1);
+
+            // 关节2 (大臂)
+            robotArm.joint2 = new THREE.Group();
+            robotArm.joint2.position.y = 100;
+
+            const j2Geo = new THREE.BoxGeometry(80, 80, 80);
+            const j2Mesh = new THREE.Mesh(j2Geo, jointMaterial);
+            j2Mesh.castShadow = true;
+            robotArm.joint2.add(j2Mesh);
+
+            // 大臂连杆
+            const link1Geo = new THREE.BoxGeometry(60, 350, 60);
+            const link1Mesh = new THREE.Mesh(link1Geo, linkMaterial);
+            link1Mesh.position.y = 175;
+            link1Mesh.castShadow = true;
+            robotArm.joint2.add(link1Mesh);
+
+            robotArm.joint1.add(robotArm.joint2);
+
+            // 关节3 (小臂)
+            robotArm.joint3 = new THREE.Group();
+            robotArm.joint3.position.y = 350;
+
+            const j3Geo = new THREE.BoxGeometry(70, 70, 70);
+            const j3Mesh = new THREE.Mesh(j3Geo, jointMaterial);
+            j3Mesh.castShadow = true;
+            robotArm.joint3.add(j3Mesh);
+
+            // 小臂连杆
+            const link2Geo = new THREE.BoxGeometry(50, 300, 50);
+            const link2Mesh = new THREE.Mesh(link2Geo, linkMaterial);
+            link2Mesh.position.y = 150;
+            link2Mesh.castShadow = true;
+            robotArm.joint3.add(link2Mesh);
+
+            robotArm.joint2.add(robotArm.joint3);
+
+            // 关节4 (手腕旋转)
+            robotArm.joint4 = new THREE.Group();
+            robotArm.joint4.position.y = 300;
+
+            const j4Geo = new THREE.CylinderGeometry(40, 40, 60, 32);
+            const j4Mesh = new THREE.Mesh(j4Geo, jointMaterial);
+            j4Mesh.castShadow = true;
+            robotArm.joint4.add(j4Mesh);
+
+            robotArm.joint3.add(robotArm.joint4);
+
+            // 关节5 (手腕摆动)
+            robotArm.joint5 = new THREE.Group();
+            robotArm.joint5.position.y = 30;
+
+            const j5Geo = new THREE.BoxGeometry(50, 50, 50);
+            const j5Mesh = new THREE.Mesh(j5Geo, jointMaterial);
+            j5Mesh.castShadow = true;
+            robotArm.joint5.add(j5Mesh);
+
+            robotArm.joint4.add(robotArm.joint5);
+
+            // 关节6 (夹具旋转)
+            robotArm.joint6 = new THREE.Group();
+            robotArm.joint6.position.y = 25;
+
+            const j6Geo = new THREE.CylinderGeometry(30, 30, 40, 32);
+            const j6Mesh = new THREE.Mesh(j6Geo, jointMaterial);
+            j6Mesh.castShadow = true;
+            robotArm.joint6.add(j6Mesh);
+
+            robotArm.joint5.add(robotArm.joint6);
+
+            // 夹具
+            robotArm.gripper = new THREE.Group();
+            robotArm.gripper.position.y = 20;
+
+            // 夹具左爪
+            const gripperLeftGeo = new THREE.BoxGeometry(15, 60, 20);
+            robotArm.gripperLeft = new THREE.Mesh(gripperLeftGeo, gripperMaterial);
+            robotArm.gripperLeft.position.x = -20;
+            robotArm.gripperLeft.position.y = 30;
+            robotArm.gripperLeft.castShadow = true;
+            robotArm.gripper.add(robotArm.gripperLeft);
+
+            // 夹具右爪
+            const gripperRightGeo = new THREE.BoxGeometry(15, 60, 20);
+            robotArm.gripperRight = new THREE.Mesh(gripperRightGeo, gripperMaterial);
+            robotArm.gripperRight.position.x = 20;
+            robotArm.gripperRight.position.y = 30;
+            robotArm.gripperRight.castShadow = true;
+            robotArm.gripper.add(robotArm.gripperRight);
+
+            robotArm.joint6.add(robotArm.gripper);
+
+            // 初始姿态
+            updateRobotKinematics();
+        }
+
+        function createMarkers() {
+            // 拾取点标记 (红色)
+            const pickGeo = new THREE.RingGeometry(30, 35, 32);
+            const pickMat = new THREE.MeshBasicMaterial({ 
+                color: 0xef4444, 
+                side: THREE.DoubleSide,
+                transparent: true,
+                opacity: 0.8
+            });
+            pickMarker = new THREE.Mesh(pickGeo, pickMat);
+            pickMarker.rotation.x = -Math.PI / 2;
+            pickMarker.position.set(300, 1, 0);
+            scene.add(pickMarker);
+
+            // 放置点标记 (绿色)
+            const placeGeo = new THREE.RingGeometry(30, 35, 32);
+            const placeMat = new THREE.MeshBasicMaterial({ 
+                color: 0x22c55e, 
+                side: THREE.DoubleSide,
+                transparent: true,
+                opacity: 0.8
+            });
+            placeMarker = new THREE.Mesh(placeGeo, placeMat);
+            placeMarker.rotation.x = -Math.PI / 2;
+            placeMarker.position.set(-200, 1, 200);
+            scene.add(placeMarker);
+
+            // 目标物体 (蓝色立方体)
+            const targetGeo = new THREE.BoxGeometry(40, 40, 40);
+            const targetMat = new THREE.MeshPhongMaterial({ 
+                color: 0x38bdf8,
+                metalness: 0.5,
+                roughness: 0.3
+            });
+            targetObject = new THREE.Mesh(targetGeo, targetMat);
+            targetObject.position.set(300, 20, 0);
+            targetObject.castShadow = true;
+            scene.add(targetObject);
+        }
+
+        // 正向运动学
+        function forwardKinematics(angles) {
+            let x = 0, y = 0, z = 0;
+            let totalAngle = 0;
+
+            // 简化的正向运动学计算
+            const a1 = 400, a2 = 350, a3 = 100;
+
+            const theta1 = angles[0] * Math.PI / 180;
+            const theta2 = angles[1] * Math.PI / 180;
+            const theta3 = angles[2] * Math.PI / 180;
+
+            // 计算末端位置 (简化模型)
+            const r = a1 * Math.cos(theta2) + a2 * Math.cos(theta2 + theta3) + a3;
+            x = r * Math.cos(theta1);
+            z = r * Math.sin(theta1);
+            y = 150 + a1 * Math.sin(theta2) + a2 * Math.sin(theta2 + theta3);
+
+            return { x, y, z };
+        }
+
+        // 逆向运动学 (几何法求解)
+        function inverseKinematics(targetX, targetY, targetZ) {
+            const solutions = [];
+
+            // 转换为局部坐标
+            const r = Math.sqrt(targetX * targetX + targetZ * targetZ);
+            const h = targetY - 150; // 减去底座高度
+
+            // 关节1 (底座旋转)
+            const theta1 = Math.atan2(targetZ, targetX) * 180 / Math.PI;
+
+            // 使用余弦定理求解关节2和3
+            const L1 = 400; // 大臂长度
+            const L2 = 350; // 小臂长度
+            const d = Math.sqrt(r * r + h * h);
+
+            if (d > L1 + L2 || d < Math.abs(L1 - L2)) {
+                return null; // 目标不可达
+            }
+
+            // 余弦定理计算角度
+            const cosAlpha = (L1 * L1 + d * d - L2 * L2) / (2 * L1 * d);
+            const alpha = Math.acos(Math.max(-1, Math.min(1, cosAlpha))) * 180 / Math.PI;
+
+            const baseAngle = Math.atan2(h, r) * 180 / Math.PI;
+            const theta2 = baseAngle - alpha;
+
+            const cosBeta = (L1 * L1 + L2 * L2 - d * d) / (2 * L1 * L2);
+            const beta = Math.acos(Math.max(-1, Math.min(1, cosBeta))) * 180 / Math.PI;
+            const theta3 = 180 - beta;
+
+            // 计算手腕角度以保持末端水平
+            const theta4 = 0;
+            const theta5 = -(theta2 + theta3);
+            const theta6 = 0;
+
+            solutions.push([theta1, theta2, theta3, theta4, theta5, theta6]);
+
+            // 另一组解 (肘部向上)
+            const theta2_alt = baseAngle + alpha;
+            const theta3_alt = -(180 - beta);
+            const theta5_alt = -(theta2_alt + theta3_alt);
+
+            solutions.push([theta1, theta2_alt, theta3_alt, theta4, theta5_alt, theta6]);
+
+            return solutions;
+        }
+
+        // 更新机械臂运动学
+        function updateRobotKinematics() {
+            // 应用关节角度
+            robotArm.joint1.rotation.y = jointAngles[0] * Math.PI / 180;
+            robotArm.joint2.rotation.z = jointAngles[1] * Math.PI / 180;
+            robotArm.joint3.rotation.z = jointAngles[2] * Math.PI / 180;
+            robotArm.joint4.rotation.y = jointAngles[3] * Math.PI / 180;
+            robotArm.joint5.rotation.x = jointAngles[4] * Math.PI / 180;
+            robotArm.joint6.rotation.y = jointAngles[5] * Math.PI / 180;
+
+            // 计算并显示末端位置
+            const endPos = getEndEffectorPosition();
+            document.getElementById('end-x').textContent = endPos.x.toFixed(1);
+            document.getElementById('end-y').textContent = endPos.y.toFixed(1);
+            document.getElementById('end-z').textContent = endPos.z.toFixed(1);
+
+            // 更新被抓取物体的位置
+            if (grippedObject) {
+                const gripperWorldPos = new THREE.Vector3();
+                robotArm.gripper.getWorldPosition(gripperWorldPos);
+                grippedObject.position.copy(gripperWorldPos);
+                grippedObject.position.y -= 60; // 调整高度
+            }
+        }
+
+        // 获取末端执行器世界坐标
+        function getEndEffectorPosition() {
+            const vector = new THREE.Vector3();
+            robotArm.gripper.getWorldPosition(vector);
+            return { x: vector.x, y: vector.y, z: vector.z };
+        }
+
+        // 关节控制
+        function updateJoint(jointNum, value) {
+            if (isExecuting) return;
+
+            jointAngles[jointNum - 1] = parseFloat(value);
+            document.getElementById(`j${jointNum}-value`).textContent = value + '°';
+            updateRobotKinematics();
+        }
+
+        // 获取当前位置到输入框
+        function getCurrentPos(type) {
+            const pos = getEndEffectorPosition();
+            document.getElementById(`${type}-x`).value = Math.round(pos.x);
+            document.getElementById(`${type}-y`).value = Math.round(pos.y);
+            document.getElementById(`${type}-z`).value = Math.round(pos.z);
+
+            // 更新标记位置
+            if (type === 'pick') {
+                pickMarker.position.set(pos.x, 1, pos.z);
+                targetObject.position.set(pos.x, 20, pos.z);
+            } else {
+                placeMarker.position.set(pos.x, 1, pos.z);
+            }
+
+            log(`已获取当前位置到${type === 'pick' ? '拾取' : '放置'}点`, 'info');
+        }
+
+        // 夹具控制
+        function setGripper(close) {
+            const targetX = close ? 8 : 20;
+
+            // 动画闭合/张开
+            const duration = 500;
+            const startLeft = robotArm.gripperLeft.position.x;
+            const startRight = robotArm.gripperRight.position.x;
+            const startTime = Date.now();
+
+            function animateGripper() {
+                const elapsed = Date.now() - startTime;
+                const progress = Math.min(elapsed / duration, 1);
+                const ease = 1 - Math.pow(1 - progress, 3);
+
+                robotArm.gripperLeft.position.x = startLeft + (-targetX - startLeft) * ease;
+                robotArm.gripperRight.position.x = startRight + (targetX - startRight) * ease;
+
+                if (progress < 1) {
+                    requestAnimationFrame(animateGripper);
+                } else {
+                    if (close && !grippedObject) {
+                        // 尝试抓取物体
+                        checkGrip();
+                    } else if (!close && grippedObject) {
+                        // 释放物体
+                        releaseObject();
+                    }
+                }
+            }
+
+            animateGripper();
+            log(close ? '夹具闭合' : '夹具张开', 'info');
+        }
+
+        function checkGrip() {
+            const gripperPos = getEndEffectorPosition();
+            const targetPos = targetObject.position;
+            const distance = gripperPos.distanceTo(targetPos);
+
+            if (distance < 80) {
+                grippedObject = targetObject;
+                log('成功抓取物体！', 'success');
+            }
+        }
+
+        function releaseObject() {
+            if (grippedObject) {
+                grippedObject = null;
+                log('物体已释放', 'info');
+            }
+        }
+
+        // 执行拾取放置序列
+        async function executePickPlace() {
+            if (isExecuting) return;
+
+            isExecuting = true;
+            updateStatus('busy', '执行中...');
+            document.getElementById('btn-execute').disabled = true;
+            document.getElementById('btn-execute').classList.add('opacity-50');
+            document.getElementById('btn-stop').classList.remove('hidden');
+
+            const pickX = parseFloat(document.getElementById('pick-x').value);
+            const pickY = parseFloat(document.getElementById('pick-y').value);
+            const pickZ = parseFloat(document.getElementById('pick-z').value);
+
+            const placeX = parseFloat(document.getElementById('place-x').value);
+            const placeY = parseFloat(document.getElementById('place-y').value);
+            const placeZ = parseFloat(document.getElementById('place-z').value);
+
+            try {
+                log('开始拾取放置序列...', 'info');
+
+                // 1. 移动到拾取点上方
+                log('移动到拾取点上方...', 'info');
+                await moveToPosition(pickX, pickY + 100, pickZ, 2000);
+
+                // 2. 下降拾取
+                log('下降拾取...', 'info');
+                await moveToPosition(pickX, pickY, pickZ, 1500);
+
+                // 3. 闭合夹具
+                log('闭合夹具...', 'info');
+                setGripper(true);
+                await delay(1000);
+
+                // 4. 抬起
+                log('抬起物体...', 'info');
+                await moveToPosition(pickX, pickY + 150, pickZ, 1500);
+
+                // 5. 移动到放置点上方
+                log('移动到放置点上方...', 'info');
+                await moveToPosition(placeX, placeY + 150, placeZ, 2500);
+
+                // 6. 下降放置
+                log('下降放置...', 'info');
+                await moveToPosition(placeX, placeY, placeZ, 1500);
+
+                // 7. 张开夹具
+                log('释放物体...', 'info');
+                setGripper(false);
+                await delay(1000);
+
+                // 8. 抬起离开
+                log('完成任务...', 'success');
+                await moveToPosition(placeX, placeY + 100, placeZ, 1000);
+
+                log('拾取放置序列完成！', 'success');
+
+            } catch (error) {
+                log('执行中断: ' + error.message, 'warning');
+            } finally {
+                isExecuting = false;
+                updateStatus('idle', '系统待机');
+                document.getElementById('btn-execute').disabled = false;
+                document.getElementById('btn-execute').classList.remove('opacity-50');
+                document.getElementById('btn-stop').classList.add('hidden');
+            }
+        }
+
+        // 移动到指定位置
+        function moveToPosition(targetX, targetY, targetZ, duration) {
+            return new Promise((resolve, reject) => {
+                if (!isExecuting) {
+                    reject(new Error('执行已停止'));
+                    return;
+                }
+
+                const solutions = inverseKinematics(targetX, targetY, targetZ);
+                if (!solutions) {
+                    reject(new Error('目标位置不可达'));
+                    return;
+                }
+
+                // 选择最接近当前角度的解
+                const targetAngles = solutions[0];
+                const startAngles = [...jointAngles];
+                const startTime = Date.now();
+
+                function animateMove() {
+                    if (!isExecuting) {
+                        reject(new Error('执行已停止'));
+                        return;
+                    }
+
+                    const elapsed = Date.now() - startTime;
+                    const progress = Math.min(elapsed / duration, 1);
+
+                    // 使用三次缓动函数
+                    const ease = progress < 0.5 
+                        ? 4 * progress * progress * progress 
+                        : 1 - Math.pow(-2 * progress + 2, 3) / 2;
+
+                    for (let i = 0; i < 6; i++) {
+                        jointAngles[i] = startAngles[i] + (targetAngles[i] - startAngles[i]) * ease;
+                    }
+
+                    // 更新滑块显示
+                    for (let i = 0; i < 6; i++) {
+                        document.getElementById(`j${i+1}`).value = jointAngles[i];
+                        document.getElementById(`j${i+1}-value`).textContent = Math.round(jointAngles[i]) + '°';
+                    }
+
+                    updateRobotKinematics();
+
+                    if (progress < 1) {
+                        animationId = requestAnimationFrame(animateMove);
+                    } else {
+                        resolve();
+                    }
+                }
+
+                animateMove();
+            });
+        }
+
+        function stopExecution() {
+            isExecuting = false;
+            if (animationId) {
+                cancelAnimationFrame(animationId);
+            }
+            log('执行已停止', 'warning');
+        }
+
+        function resetArm() {
+            if (isExecuting) return;
+
+            jointAngles = [0, 0, 0, 0, 0, 0];
+            for (let i = 0; i < 6; i++) {
+                document.getElementById(`j${i+1}`).value = 0;
+                document.getElementById(`j${i+1}-value`).textContent = '0°';
+            }
+            updateRobotKinematics();
+            setGripper(false);
+            log('机械臂已复位', 'info');
+        }
+
+        function delay(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
+        function updateStatus(state, text) {
+            const indicator = document.getElementById('system-status');
+            const statusText = document.getElementById('status-text');
+
+            indicator.className = 'status-indicator status-' + state;
+            statusText.textContent = text;
+        }
+
+        function log(message, type = 'info') {
+            const logContainer = document.getElementById('system-log');
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${type}`;
+
+            const time = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+            entry.textContent = `[${time}] ${message}`;
+
+            logContainer.appendChild(entry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+
+        function onWindowResize() {
+            const container = document.getElementById('canvas-container');
+            camera.aspect = container.clientWidth / container.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(container.clientWidth, container.clientHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+
+            // 旋转标记动画
+            if (pickMarker) pickMarker.rotation.z += 0.02;
+            if (placeMarker) placeMarker.rotation.z -= 0.02;
+
+            renderer.render(scene, camera);
+        }
+
+        // 启动
+        window.onload = init;
+    </script>
+</body>
+</html>
