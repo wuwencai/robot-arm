@@ -176,6 +176,25 @@
                     </div>
                 </div>
             </div>
+
+            <!-- Target Object Position -->
+            <div id="target-coord-panel" class="absolute bottom-4 left-4 glass-panel rounded-lg p-3 text-xs max-w-xs hidden">
+                <h3 class="text-sm font-semibold text-blue-400 mb-2">拾取物体坐标</h3>
+                <div class="grid grid-cols-3 gap-2">
+                    <div class="text-center">
+                        <span class="block text-red-400 font-bold">X</span>
+                        <span id="target-x" class="value-display">0.0</span>
+                    </div>
+                    <div class="text-center">
+                        <span class="block text-green-400 font-bold">Y</span>
+                        <span id="target-y" class="value-display">0.0</span>
+                    </div>
+                    <div class="text-center">
+                        <span class="block text-blue-400 font-bold">Z</span>
+                        <span id="target-z" class="value-display">0.0</span>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <!-- Control Panel -->
@@ -189,6 +208,39 @@
 
             <!-- Scrollable Content -->
             <div class="flex-1 overflow-y-auto p-4 space-y-6">
+
+                <!-- End Effector Coordinate Input -->
+                <div class="space-y-3">
+                    <div class="flex items-center justify-between">
+                        <h3 class="text-sm font-semibold text-slate-300 flex items-center">
+                            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 1.343-3 3s1.343 3 3 3 3-1.343 3-3-1.343-3-3-3zm0-2c2.761 0 5 2.239 5 5s-2.239 5-5 5-5-2.239-5-5 2.239-5 5-5zm0-5a9 9 0 00-9 9h2a7 7 0 0114 0h2a9 9 0 00-9-9z"></path>
+                            </svg>
+                            末端坐标输入
+                        </h3>
+                        <button onclick="fillEndEffectorInputs()" class="text-xs text-slate-400 hover:text-sky-400 transition">
+                            获取末端坐标
+                        </button>
+                    </div>
+                    <div class="grid grid-cols-3 gap-2">
+                        <div>
+                            <label class="axis-label block mb-1">X (mm)</label>
+                            <input type="number" id="end-x-input" class="coordinate-input w-full px-2 py-1 rounded text-sm" value="0" onfocus="enableCanvasFocus(this)" onblur="disableCanvasFocus()">
+                        </div>
+                        <div>
+                            <label class="axis-label block mb-1">Y (mm)</label>
+                            <input type="number" id="end-y-input" class="coordinate-input w-full px-2 py-1 rounded text-sm" value="0" onfocus="enableCanvasFocus(this)" onblur="disableCanvasFocus()">
+                        </div>
+                        <div>
+                            <label class="axis-label block mb-1">Z (mm)</label>
+                            <input type="number" id="end-z-input" class="coordinate-input w-full px-2 py-1 rounded text-sm" value="0" onfocus="enableCanvasFocus(this)" onblur="disableCanvasFocus()">
+                        </div>
+                    </div>
+                    <div class="flex items-center gap-2 text-xs text-slate-400">
+                        <span class="inline-block px-2 py-1 bg-slate-800 rounded">点击输入框后，在画布上点击坐标点</span>
+                        <span id="canvas-pick-hint">当前未激活</span>
+                    </div>
+                </div>
 
                 <!-- Pick Position -->
                 <div class="space-y-3">
@@ -206,15 +258,15 @@
                     <div class="grid grid-cols-3 gap-2">
                         <div>
                             <label class="axis-label block mb-1">X (mm)</label>
-                            <input type="number" id="pick-x" class="coordinate-input w-full px-2 py-1 rounded text-sm" value="300">
+                            <input type="number" id="pick-x" class="coordinate-input w-full px-2 py-1 rounded text-sm" value="300" onfocus="enableCanvasFocus(this)" onblur="disableCanvasFocus()">
                         </div>
                         <div>
                             <label class="axis-label block mb-1">Y (mm)</label>
-                            <input type="number" id="pick-y" class="coordinate-input w-full px-2 py-1 rounded text-sm" value="0">
+                            <input type="number" id="pick-y" class="coordinate-input w-full px-2 py-1 rounded text-sm" value="0" onfocus="enableCanvasFocus(this)" onblur="disableCanvasFocus()">
                         </div>
                         <div>
                             <label class="axis-label block mb-1">Z (mm)</label>
-                            <input type="number" id="pick-z" class="coordinate-input w-full px-2 py-1 rounded text-sm" value="100">
+                            <input type="number" id="pick-z" class="coordinate-input w-full px-2 py-1 rounded text-sm" value="100" onfocus="enableCanvasFocus(this)" onblur="disableCanvasFocus()">
                         </div>
                     </div>
                 </div>
@@ -235,15 +287,15 @@
                     <div class="grid grid-cols-3 gap-2">
                         <div>
                             <label class="axis-label block mb-1">X (mm)</label>
-                            <input type="number" id="place-x" class="coordinate-input w-full px-2 py-1 rounded text-sm" value="-200">
+                            <input type="number" id="place-x" class="coordinate-input w-full px-2 py-1 rounded text-sm" value="-200" onfocus="enableCanvasFocus(this)" onblur="disableCanvasFocus()">
                         </div>
                         <div>
                             <label class="axis-label block mb-1">Y (mm)</label>
-                            <input type="number" id="place-y" class="coordinate-input w-full px-2 py-1 rounded text-sm" value="200">
+                            <input type="number" id="place-y" class="coordinate-input w-full px-2 py-1 rounded text-sm" value="200" onfocus="enableCanvasFocus(this)" onblur="disableCanvasFocus()">
                         </div>
                         <div>
                             <label class="axis-label block mb-1">Z (mm)</label>
-                            <input type="number" id="place-z" class="coordinate-input w-full px-2 py-1 rounded text-sm" value="150">
+                            <input type="number" id="place-z" class="coordinate-input w-full px-2 py-1 rounded text-sm" value="150" onfocus="enableCanvasFocus(this)" onblur="disableCanvasFocus()">
                         </div>
                     </div>
                 </div>
@@ -352,10 +404,12 @@
         // 全局变量
         let scene, camera, renderer, controls;
         let robotArm = {};
-        let targetObject, pickMarker, placeMarker;
+        let targetObject, pickMarker, placeMarker, groundPlane;
         let isExecuting = false;
         let animationId = null;
         let grippedObject = null;
+        let raycaster, mouse = new THREE.Vector2();
+        let focusedInput = null;
 
         // DH 参数 (改进型DH)
         const dhParams = [
@@ -418,6 +472,19 @@
             // 坐标轴
             const axesHelper = new THREE.AxesHelper(200);
             scene.add(axesHelper);
+
+            // 可拾取地面平面，用于鼠标坐标选择
+            const planeGeo = new THREE.PlaneGeometry(2000, 2000);
+            const planeMat = new THREE.MeshBasicMaterial({ visible: false });
+            groundPlane = new THREE.Mesh(planeGeo, planeMat);
+            groundPlane.rotation.x = -Math.PI / 2;
+            groundPlane.position.y = 0;
+            scene.add(groundPlane);
+
+            raycaster = new THREE.Raycaster();
+            
+            container.addEventListener('pointermove', onCanvasPointerMove);
+            container.addEventListener('pointerdown', onCanvasPointerDown);
 
             // 创建机械臂
             createRobotArm();
@@ -737,6 +804,11 @@
             document.getElementById(`${type}-y`).value = Math.round(pos.y);
             document.getElementById(`${type}-z`).value = Math.round(pos.z);
 
+            // Update end effector inputs when picking current position
+            if (type === 'pick' || type === 'place') {
+                fillEndEffectorInputs();
+            }
+
             // 更新标记位置
             if (type === 'pick') {
                 pickMarker.position.set(pos.x, 1, pos.z);
@@ -941,9 +1013,15 @@
                 document.getElementById(`j${i+1}`).value = 0;
                 document.getElementById(`j${i+1}-value`).textContent = '0°';
             }
+
+            // 确保复位时末端执行器与地面平行
+            if (robotArm.joint4) robotArm.joint4.rotation.y = 0;
+            if (robotArm.joint5) robotArm.joint5.rotation.x = 0;
+            if (robotArm.joint6) robotArm.joint6.rotation.y = 0;
+
             updateRobotKinematics();
             setGripper(false);
-            log('机械臂已复位', 'info');
+            log('机械臂已复位，末端与地面保持平行', 'info');
         }
 
         function delay(ms) {
@@ -970,6 +1048,60 @@
             logContainer.scrollTop = logContainer.scrollHeight;
         }
 
+        function fillEndEffectorInputs() {
+            const pos = getEndEffectorPosition();
+            document.getElementById('end-x-input').value = Math.round(pos.x);
+            document.getElementById('end-y-input').value = Math.round(pos.y);
+            document.getElementById('end-z-input').value = Math.round(pos.z);
+            document.getElementById('canvas-pick-hint').textContent = '已获取当前末端坐标';
+        }
+
+        function enableCanvasFocus(input) {
+            focusedInput = input;
+            document.getElementById('canvas-pick-hint').textContent = '请在画布上点击选择坐标';
+        }
+
+        function disableCanvasFocus() {
+            focusedInput = null;
+            document.getElementById('canvas-pick-hint').textContent = '当前未激活';
+        }
+
+        function onCanvasPointerMove(event) {
+            if (!focusedInput) return;
+            const rect = event.target.getBoundingClientRect();
+            mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObject(groundPlane, false);
+            if (intersects.length > 0) {
+                const point = intersects[0].point;
+                const axis = focusedInput.id.split('-').pop();
+                let displayValue = 0;
+                if (axis === 'x') displayValue = point.x;
+                else if (axis === 'y') displayValue = point.y;
+                else if (axis === 'z') displayValue = point.z;
+                focusedInput.value = displayValue.toFixed(0);
+            }
+        }
+
+        function onCanvasPointerDown(event) {
+            if (!focusedInput) return;
+            event.preventDefault();
+            const rect = event.target.getBoundingClientRect();
+            mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObject(groundPlane, false);
+            if (intersects.length > 0) {
+                const point = intersects[0].point;
+                const axis = focusedInput.id.split('-').pop();
+                if (axis === 'x') focusedInput.value = Math.round(point.x);
+                if (axis === 'y') focusedInput.value = Math.round(point.y);
+                if (axis === 'z') focusedInput.value = Math.round(point.z);
+                document.getElementById('canvas-pick-hint').textContent = `已设置 ${axis.toUpperCase()} 坐标`; 
+            }
+        }
+
         function onWindowResize() {
             const container = document.getElementById('canvas-container');
             camera.aspect = container.clientWidth / container.clientHeight;
@@ -984,6 +1116,19 @@
             // 旋转标记动画
             if (pickMarker) pickMarker.rotation.z += 0.02;
             if (placeMarker) placeMarker.rotation.z -= 0.02;
+
+            // 更新拾取物体坐标显示
+            if (targetObject) {
+                const targetPanel = document.getElementById('target-coord-panel');
+                if (grippedObject || targetObject.position.y > -10) {
+                    targetPanel.classList.remove('hidden');
+                    document.getElementById('target-x').textContent = targetObject.position.x.toFixed(1);
+                    document.getElementById('target-y').textContent = targetObject.position.y.toFixed(1);
+                    document.getElementById('target-z').textContent = targetObject.position.z.toFixed(1);
+                } else {
+                    targetPanel.classList.add('hidden');
+                }
+            }
 
             renderer.render(scene, camera);
         }
