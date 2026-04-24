@@ -258,15 +258,15 @@
                     <div class="grid grid-cols-3 gap-2">
                         <div>
                             <label class="axis-label block mb-1">X (mm)</label>
-                            <input type="number" id="pick-x" class="coordinate-input w-full px-2 py-1 rounded text-sm" value="300" onfocus="enableCanvasFocus(this)" onblur="disableCanvasFocus()">
+                            <input type="number" id="pick-x" class="coordinate-input w-full px-2 py-1 rounded text-sm" value="300" onfocus="enableCanvasFocus(this)" onblur="disableCanvasFocus(); syncPickInputsToObject()">
                         </div>
                         <div>
                             <label class="axis-label block mb-1">Y (mm)</label>
-                            <input type="number" id="pick-y" class="coordinate-input w-full px-2 py-1 rounded text-sm" value="0" onfocus="enableCanvasFocus(this)" onblur="disableCanvasFocus()">
+                            <input type="number" id="pick-y" class="coordinate-input w-full px-2 py-1 rounded text-sm" value="0" onfocus="enableCanvasFocus(this)" onblur="disableCanvasFocus(); syncPickInputsToObject()">
                         </div>
                         <div>
                             <label class="axis-label block mb-1">Z (mm)</label>
-                            <input type="number" id="pick-z" class="coordinate-input w-full px-2 py-1 rounded text-sm" value="100" onfocus="enableCanvasFocus(this)" onblur="disableCanvasFocus()">
+                            <input type="number" id="pick-z" class="coordinate-input w-full px-2 py-1 rounded text-sm" value="0" onfocus="enableCanvasFocus(this)" onblur="disableCanvasFocus(); syncPickInputsToObject()">
                         </div>
                     </div>
                 </div>
@@ -408,6 +408,7 @@
         let isExecuting = false;
         let animationId = null;
         let grippedObject = null;
+        let gripOffset = new THREE.Vector3();
         let raycaster, mouse = new THREE.Vector2();
         let focusedInput = null;
 
@@ -491,6 +492,7 @@
 
             // 创建目标物体和标记
             createMarkers();
+            updatePickInputsFromTarget();
 
             // 窗口调整
             window.addEventListener('resize', onWindowResize);
@@ -628,7 +630,7 @@
             // 夹具左爪
             const gripperLeftGeo = new THREE.BoxGeometry(15, 60, 20);
             robotArm.gripperLeft = new THREE.Mesh(gripperLeftGeo, gripperMaterial);
-            robotArm.gripperLeft.position.x = -20;
+            robotArm.gripperLeft.position.x = -30;
             robotArm.gripperLeft.position.y = 30;
             robotArm.gripperLeft.castShadow = true;
             robotArm.gripper.add(robotArm.gripperLeft);
@@ -636,7 +638,7 @@
             // 夹具右爪
             const gripperRightGeo = new THREE.BoxGeometry(15, 60, 20);
             robotArm.gripperRight = new THREE.Mesh(gripperRightGeo, gripperMaterial);
-            robotArm.gripperRight.position.x = 20;
+            robotArm.gripperRight.position.x = 30;
             robotArm.gripperRight.position.y = 30;
             robotArm.gripperRight.castShadow = true;
             robotArm.gripper.add(robotArm.gripperRight);
@@ -651,7 +653,7 @@
             // 拾取点标记 (红色)
             const pickGeo = new THREE.RingGeometry(30, 35, 32);
             const pickMat = new THREE.MeshBasicMaterial({ 
-                color: 0xef4444, 
+                color: 0xef4444,   
                 side: THREE.DoubleSide,
                 transparent: true,
                 opacity: 0.8
@@ -689,67 +691,73 @@
 
         // 正向运动学
         function forwardKinematics(angles) {
-            let x = 0, y = 0, z = 0;
-            let totalAngle = 0;
-
-            // 简化的正向运动学计算
-            const a1 = 400, a2 = 350, a3 = 100;
+            // Three.js 几何实测链长：
+            //   joint2 world Y = joint1(40) + joint2.position.y(100) = 140
+            //   joint2→joint3 = 350, joint3→joint4 = 300, joint4→gripper ≈ 30+25+20 = 75
+            // Three.js 用 Z 轴旋转：θ=0 时臂竖直向上；θ 增大时臂向 -X 倾斜
+            //   因此 sin 给水平位移，cos 给竖直高度（与"臂从水平出发"的公式相反）
+            const baseY = 140;
+            const a1 = 350, a2 = 300, a3 = 75;
 
             const theta1 = angles[0] * Math.PI / 180;
             const theta2 = angles[1] * Math.PI / 180;
             const theta3 = angles[2] * Math.PI / 180;
+            const theta4 = angles[3] * Math.PI / 180;
 
-            // 计算末端位置 (简化模型)
-            const r = a1 * Math.cos(theta2) + a2 * Math.cos(theta2 + theta3) + a3;
-            x = r * Math.cos(theta1);
-            z = r * Math.sin(theta1);
-            y = 150 + a1 * Math.sin(theta2) + a2 * Math.sin(theta2 + theta3);
+            const sinSum = a1*Math.sin(theta2) + a2*Math.sin(theta2+theta3) + a3*Math.sin(theta2+theta3+theta4);
+            const cosSum = a1*Math.cos(theta2) + a2*Math.cos(theta2+theta3) + a3*Math.cos(theta2+theta3+theta4);
 
-            return { x, y, z };
+            return {
+                x: -sinSum * Math.cos(theta1),
+                z:  sinSum * Math.sin(theta1),
+                y:  baseY + cosSum
+            };
         }
 
         // 逆向运动学 (几何法求解)
         function inverseKinematics(targetX, targetY, targetZ) {
             const solutions = [];
 
-            // 转换为局部坐标
-            const r = Math.sqrt(targetX * targetX + targetZ * targetZ);
-            const h = targetY - 150; // 减去底座高度
+            const baseY = 140;
+            const L1 = 350;
+            // L2 = a2(300) + a3(75) = 375：t4=0 时 a3 与 a2 方向相同，合并为等效长度
+            // 这样 IK 直接对夹爪末端求解，与 FK 完全对应，无需额外补偿
+            const L2 = 375;
 
-            // 关节1 (底座旋转)
+            const r = Math.sqrt(targetX * targetX + targetZ * targetZ);
+            const h = targetY - baseY;
+
+            // 关节1：底座旋转方向与 FK x = -sinSum*cos(θ1) 一致
             const theta1 = Math.atan2(targetZ, targetX) * 180 / Math.PI;
 
-            // 使用余弦定理求解关节2和3
-            const L1 = 400; // 大臂长度
-            const L2 = 350; // 小臂长度
             const d = Math.sqrt(r * r + h * h);
-
             if (d > L1 + L2 || d < Math.abs(L1 - L2)) {
-                return null; // 目标不可达
+                return null;
             }
 
-            // 余弦定理计算角度
             const cosAlpha = (L1 * L1 + d * d - L2 * L2) / (2 * L1 * d);
             const alpha = Math.acos(Math.max(-1, Math.min(1, cosAlpha))) * 180 / Math.PI;
 
-            const baseAngle = Math.atan2(h, r) * 180 / Math.PI;
-            const theta2 = baseAngle - alpha;
+            // baseAngle：在臂平面内，目标方向相对于竖直向上轴的角度
+            // 目标的 sin 分量 = -r（+X 目标需要负角），cos 分量 = h
+            const baseAngle = Math.atan2(-r, h) * 180 / Math.PI;
 
+            // 主解（肘部向前折叠）
+            const theta2 = baseAngle + alpha;
             const cosBeta = (L1 * L1 + L2 * L2 - d * d) / (2 * L1 * L2);
             const beta = Math.acos(Math.max(-1, Math.min(1, cosBeta))) * 180 / Math.PI;
-            const theta3 = 180 - beta;
+            const theta3 = -(180 - beta);
 
-            // 计算手腕角度以保持末端水平
             const theta4 = 0;
-            const theta5 = -(theta2 + theta3);
+            const theta5 = 0;  // 不做腕部补偿：补偿角约 164°，远超 joint5 ±90° 范围且破坏位置精度
             const theta6 = 0;
 
             solutions.push([theta1, theta2, theta3, theta4, theta5, theta6]);
 
-            // 另一组解 (肘部向上)
-            const theta2_alt = baseAngle + alpha;
-            const theta3_alt = -(180 - beta);
-            const theta5_alt = -(theta2_alt + theta3_alt);
+            // 备用解（肘部向上）
+            const theta2_alt = baseAngle - alpha;
+            const theta3_alt = 180 - beta;
+            const theta5_alt = 0;
 
             solutions.push([theta1, theta2_alt, theta3_alt, theta4, theta5_alt, theta6]);
 
@@ -772,12 +780,26 @@
             document.getElementById('end-y').textContent = endPos.y.toFixed(1);
             document.getElementById('end-z').textContent = endPos.z.toFixed(1);
 
+            // 验证正向运动学与实际位置的匹配
+            const fkPos = forwardKinematics(jointAngles);
+            const fkDistance = Math.sqrt(
+                Math.pow(fkPos.x - endPos.x, 2) +
+                Math.pow(fkPos.y - endPos.y, 2) +
+                Math.pow(fkPos.z - endPos.z, 2)
+            );
+            if (fkDistance > 50) {
+                console.warn('正向运动学与实际位置不匹配，距离:', fkDistance.toFixed(1));
+            }
+
             // 更新被抓取物体的位置
             if (grippedObject) {
                 const gripperWorldPos = new THREE.Vector3();
                 robotArm.gripper.getWorldPosition(gripperWorldPos);
-                grippedObject.position.copy(gripperWorldPos);
-                grippedObject.position.y -= 50; // 调整到物体中心位置
+                grippedObject.position.set(
+                    gripperWorldPos.x + gripOffset.x,
+                    gripperWorldPos.y + gripOffset.y,
+                    gripperWorldPos.z + gripOffset.z
+                );
             }
         }
 
@@ -799,30 +821,66 @@
 
         // 获取当前位置到输入框
         function getCurrentPos(type) {
-            const pos = getEndEffectorPosition();
-            document.getElementById(`${type}-x`).value = Math.round(pos.x);
-            document.getElementById(`${type}-y`).value = Math.round(pos.y);
-            document.getElementById(`${type}-z`).value = Math.round(pos.z);
-
-            // Update end effector inputs when picking current position
-            if (type === 'pick' || type === 'place') {
-                fillEndEffectorInputs();
+            let pos;
+            if (type === 'pick') {
+                // 以末端执行器坐标作为拾取目标坐标
+                pos = getEndEffectorPosition();
+                targetObject.position.set(pos.x, pos.y, pos.z);
+                pickMarker.position.set(pos.x, 1, pos.z);
+            } else {
+                pos = getEndEffectorPosition();
+                placeMarker.position.set(pos.x, 1, pos.z);
             }
 
-            // 更新标记位置
-            if (type === 'pick') {
-                pickMarker.position.set(pos.x, 1, pos.z);
-                targetObject.position.set(pos.x, 20, pos.z);
-            } else {
-                placeMarker.position.set(pos.x, 1, pos.z);
+            const objectHeight = targetObject?.geometry?.parameters?.height || 40;
+            document.getElementById(`${type}-x`).value = Math.round(pos.x);
+            document.getElementById(`${type}-y`).value = type === 'pick'
+                ? Math.round(pos.y - objectHeight / 2)
+                : Math.round(pos.y);
+            document.getElementById(`${type}-z`).value = Math.round(pos.z);
+
+            if (!canReachPosition(pos.x, pos.y, pos.z)) {
+                log(`警告：${type === 'pick' ? '拾取' : '放置'}点位超出机械臂可达范围，请调整位置。`, 'warning');
             }
 
             log(`已获取当前位置到${type === 'pick' ? '拾取' : '放置'}点`, 'info');
         }
 
+        function canReachPosition(x, y, z) {
+            const solutions = inverseKinematics(x, y, z);
+            return solutions !== null;
+        }
+
+        function syncPickInputsToObject() {
+            const x = parseFloat(document.getElementById('pick-x').value);
+            const y = parseFloat(document.getElementById('pick-y').value);
+            const z = parseFloat(document.getElementById('pick-z').value);
+            if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)) {
+                const objectHeight = targetObject?.geometry?.parameters?.height || 40;
+                const centerY = y + objectHeight / 2;
+                targetObject.position.set(x, centerY, z);
+                pickMarker.position.set(x, 1, z);
+                if (!canReachPosition(x, centerY, z)) {
+                    log('警告：当前物体坐标超出可达范围，请调整坐标。', 'warning');
+                }
+            }
+        }
+
+        function updatePickInputsFromTarget() {
+            if (!targetObject) return;
+            const objectHeight = targetObject.geometry?.parameters?.height || 40;
+            document.getElementById('pick-x').value = Math.round(targetObject.position.x);
+            document.getElementById('pick-y').value = Math.round(targetObject.position.y - objectHeight / 2);
+            document.getElementById('pick-z').value = Math.round(targetObject.position.z);
+            pickMarker.position.set(targetObject.position.x, 1, targetObject.position.z);
+        }
+
         // 夹具控制
         function setGripper(close) {
-            const targetX = close ? 8 : 20;
+            // 物体宽 40mm，手指宽 15mm
+            // open: 内侧边 = ±(30-7.5) = ±22.5mm，比物体边缘(±20)宽 2.5mm，不穿插
+            // close: 内侧边 = ±(24-7.5) = ±16.5mm，握入物体 3.5mm，视觉上夹紧
+            const targetX = close ? 24 : 30;
 
             // 动画闭合/张开
             const duration = 500;
@@ -865,6 +923,12 @@
 
             if (distance < 100) {
                 grippedObject = targetObject;
+                // 记录抓取瞬间物体相对于夹爪的偏移，随动时保持此偏移
+                gripOffset.set(
+                    targetObject.position.x - gripperPos.x,
+                    targetObject.position.y - gripperPos.y,
+                    targetObject.position.z - gripperPos.z
+                );
                 log('成功抓取物体！', 'success');
             }
         }
@@ -894,16 +958,43 @@
             const placeY = parseFloat(document.getElementById('place-y').value);
             const placeZ = parseFloat(document.getElementById('place-z').value);
 
+            // 将实际物体位置同步到当前拾取坐标
+            syncPickInputsToObject();
+            const objectHeight = targetObject.geometry?.parameters?.height || 40;
+            // 手指中心在 gripper group 下方 30mm（臂向下时 local y=30 → world y-30）
+            // 需让手指中心对准物体中心：gripperGroup_Y = objectCenter + 30
+            const grabY = pickY + objectHeight / 2 + 30;
+
             try {
                 log('开始拾取放置序列...', 'info');
 
+                if (!canReachPosition(pickX, pickY, pickZ)) {
+                    throw new Error('拾取点位超出可达范围，停止执行');
+                }
+                if (!canReachPosition(placeX, placeY, placeZ)) {
+                    throw new Error('放置点位超出可达范围，停止执行');
+                }
+
                 // 1. 移动到拾取点上方
                 log('移动到拾取点上方...', 'info');
-                await moveToPosition(pickX, pickY + 100, pickZ, 2000);
+                await moveToPosition(pickX, grabY + 100, pickZ, 2000);
 
                 // 2. 下降拾取
                 log('下降拾取...', 'info');
-                await moveToPosition(pickX, pickY, pickZ, 1500);
+                await moveToPosition(pickX, grabY, pickZ, 1500);
+
+                // 检查末端是否到达拾取位置
+                const actualPickPos = getEndEffectorPosition();
+                const pickDistance = Math.sqrt(
+                    Math.pow(actualPickPos.x - pickX, 2) +
+                    Math.pow(actualPickPos.y - grabY, 2) +
+                    Math.pow(actualPickPos.z - pickZ, 2)
+                );
+                if (pickDistance > 20) {
+                    log(`警告：末端未到达拾取位置，距离: ${pickDistance.toFixed(1)}`, 'warning');
+                } else {
+                    log(`末端已到达拾取位置，距离: ${pickDistance.toFixed(1)}`, 'success');
+                }
 
                 // 3. 闭合夹具
                 log('闭合夹具...', 'info');
@@ -963,6 +1054,9 @@
                 const startAngles = [...jointAngles];
                 const startTime = Date.now();
 
+                log(`开始移动到目标位置: (${targetX.toFixed(1)}, ${targetY.toFixed(1)}, ${targetZ.toFixed(1)})`, 'info');
+                log(`计算的关节角度: [${targetAngles.map(a => a.toFixed(1)).join(', ')}]`, 'info');
+
                 function animateMove() {
                     if (!isExecuting) {
                         reject(new Error('执行已停止'));
@@ -992,6 +1086,13 @@
                     if (progress < 1) {
                         animationId = requestAnimationFrame(animateMove);
                     } else {
+                        const actualPos = getEndEffectorPosition();
+                        const distance = Math.sqrt(
+                            Math.pow(actualPos.x - targetX, 2) +
+                            Math.pow(actualPos.y - targetY, 2) +
+                            Math.pow(actualPos.z - targetZ, 2)
+                        );
+                        log(`移动完成，实际位置: (${actualPos.x.toFixed(1)}, ${actualPos.y.toFixed(1)}, ${actualPos.z.toFixed(1)}), 距离目标: ${distance.toFixed(1)}`, distance < 10 ? 'success' : 'warning');
                         resolve();
                     }
                 }
@@ -1011,20 +1112,16 @@
         function resetArm() {
             if (isExecuting) return;
 
+            // 复位各个关节角度
             jointAngles = [0, 0, 0, 0, 0, 0];
             for (let i = 0; i < 6; i++) {
                 document.getElementById(`j${i+1}`).value = 0;
                 document.getElementById(`j${i+1}-value`).textContent = '0°';
             }
 
-            // 确保复位时末端执行器与地面平行
-            if (robotArm.joint4) robotArm.joint4.rotation.y = 0;
-            if (robotArm.joint5) robotArm.joint5.rotation.x = 0;
-            if (robotArm.joint6) robotArm.joint6.rotation.y = 0;
-
             updateRobotKinematics();
             setGripper(false);
-            log('机械臂已复位，末端与地面保持平行', 'info');
+            log('机械臂已复位，关节3与关节4保持垂直，末端与地面平行', 'info');
         }
 
         function delay(ms) {
@@ -1117,7 +1214,12 @@
             controls.update();
 
             // 旋转标记动画
-            if (pickMarker) pickMarker.rotation.z += 0.02;
+            if (pickMarker) {
+                pickMarker.rotation.z += 0.02;
+                if (targetObject) {
+                    pickMarker.position.set(targetObject.position.x, 1, targetObject.position.z);
+                }
+            }
             if (placeMarker) placeMarker.rotation.z -= 0.02;
 
             // 更新拾取物体坐标显示
@@ -1141,3 +1243,4 @@
     </script>
 </body>
 </html>
+
